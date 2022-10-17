@@ -1,0 +1,30 @@
+name: Release
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  release:
+    name: Tag and release new version
+    runs-on: ubuntu-latest
+    environment:
+        name: release
+    steps:
+      - uses: actions/checkout@v3
+
+      - id: vars
+        run: echo "::set-output name=sha_short::$(git rev-parse --short HEAD)"
+
+      - uses: SOLIDSoftworks/semver-tags@1.0.4
+        id: semver
+        with:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          tag-prefix: "v"
+          default-version: "0.0.1"
+
+      - name: Tag commit
+        uses: tvdias/github-tagger@v0.0.2
+        with:
+          repo-token: "${{ secrets.GITHUB_TOKEN }}"
+          tag: "${{ steps.semver.outputs.semantic-version }}"
