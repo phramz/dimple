@@ -1,4 +1,4 @@
-package pkg
+package dimple
 
 var _ Definition = (*definition)(nil)
 

@@ -1,19 +1,28 @@
 Dimple (DI)
 ===========
 
-Lightweight dependency injection container library for Golang
+Lightweight dependency injection container library for Golang inspired by [Pimple](https://github.com/silexphp/Pimple).
 
-## TL;DR
+## Install
 
-TODO
-
+```shell
+$ go get github.com/phramz/dimple
+```
 ## Usage
 
-TODO
+Have a look a the [examples](./examples) folder for more code.
+
+### Services
+
+### Parameters
+
+## Advanced
+
+### Decorators
 
 ## Credits
 
-This tool is base on multiple awesome open source libraries shout-outs to:
+This library is based on various awesome open source libraries shout-outs to:
 * https://github.com/silexphp/Pimple
 * https://github.com/thoas/go-funk
 * https://github.com/stretchr/testify

@@ -1,4 +1,4 @@
-package pkg
+package dimple
 
 import (
 	"context"
@@ -30,6 +30,38 @@ type container struct {
 	definitions map[string]Definition
 }
 
+func (c *container) Add(id string, val any) Container {
+	if c.booted {
+		panic(ErrContainerAlreadyBooted)
+	}
+
+	return c.add(id, val)
+}
+
+func (c *container) Fn(id string, fn Fn) Container {
+	return c.Add(id, fn)
+}
+
+func (c *container) FactoryFn(id string, fn FactoryFn) Container {
+	return c.Add(id, fn)
+}
+
+func (c *container) Definition(def Definition) Container {
+	return c.Add(def.Id(), def)
+}
+
+func (c *container) Decorator(def DecoratorDef) Container {
+	return c.Add(def.Id(), def)
+}
+
+func (c *container) Service(def ServiceDef) Container {
+	return c.Add(def.Id(), def)
+}
+
+func (c *container) Param(def ParamDef) Container {
+	return c.Add(def.Id(), def)
+}
+
 func (c *container) Ctx() context.Context {
 	return c.ctx
 }
@@ -42,10 +74,10 @@ func (c *container) Boot() error {
 	return c.boot(c.allServiceIDs()...)
 }
 
-func (c *container) Definition(id string) Definition {
+func (c *container) GetDefinition(id string) Definition {
 
 	if c.parent != nil {
-		return c.parent.Definition(id)
+		return c.parent.GetDefinition(id)
 	}
 
 	if def, ok := c.definitions[id]; ok {
@@ -56,7 +88,7 @@ func (c *container) Definition(id string) Definition {
 }
 
 func (c *container) Has(id string) bool {
-	return c.Definition(id) != nil
+	return c.GetDefinition(id) != nil
 }
 
 func (c *container) Get(id string) any {
@@ -74,15 +106,7 @@ func (c *container) Get(id string) any {
 	return instance
 }
 
-func (c *container) With(id string, val any) Container {
-	if c.booted {
-		panic(ErrContainerAlreadyBooted)
-	}
-
-	return c.with(id, val)
-}
-
-func (c *container) with(id string, val any) Container {
+func (c *container) add(id string, val any) Container {
 	c.Lock()
 	defer c.Unlock()
 
@@ -98,6 +122,10 @@ func (c *container) with(id string, val any) Container {
 		panic(fmt.Sprintf(`unsupported type of definiton "%T" for service "%s"`, val, id))
 	case FactoryFn:
 		def = Service(t).WithID(id)
+	case Fn:
+		def = Service(func(ctx FactoryCtx) (any, error) {
+			return t()
+		}).WithID(id)
 	default:
 		def = Param(val).WithID(id)
 	}
@@ -108,7 +136,7 @@ func (c *container) with(id string, val any) Container {
 		return c
 	}
 
-	c.parent.with(id, def)
+	c.parent.add(id, def)
 
 	return c
 }
@@ -118,7 +146,7 @@ func (c *container) get(id string) (any, error) {
 	var instance any
 	var err error
 
-	def := c.Definition(id)
+	def := c.GetDefinition(id)
 	if def == nil {
 		return nil, fmt.Errorf(`%w: cannot find definiton for service "%s"`, ErrUnknownService, id)
 	}
@@ -145,7 +173,7 @@ func (c *container) get(id string) (any, error) {
 			return nil, fmt.Errorf(`%w: cannot instantiate service "%s: %s"`, ErrServiceFactoryFailed, id, err.Error())
 		}
 
-		c.with(id, svc.WithInstance(instance))
+		c.add(id, svc.WithInstance(instance))
 
 		return instance, nil
 	}
@@ -161,7 +189,7 @@ func (c *container) get(id string) (any, error) {
 			return nil, fmt.Errorf(`%w: %s`, ErrCircularDependency, indirection.debugPathInfo(indirection.path(svc.Decorates())))
 		}
 
-		targetDef := indirection.Definition(svc.Decorates())
+		targetDef := indirection.GetDefinition(svc.Decorates())
 		targetInstance, err = indirection.get(svc.Decorates())
 		if err != nil {
 			return nil, err
@@ -175,8 +203,8 @@ func (c *container) get(id string) (any, error) {
 		target := svc.WithInstance(instance).
 			WithDecorated(targetDef)
 
-		c.with(id, target)
-		c.with(svc.Decorates(), target)
+		c.add(id, target)
+		c.add(svc.Decorates(), target)
 
 		return instance, nil
 	}
@@ -272,7 +300,7 @@ func (c *container) clone() *container {
 func (c *container) debugPathInfo(defIDs []string) string {
 	pathInfo := make([]string, 0)
 	for _, defID := range defIDs {
-		subPath := c.debugDecoratorPath(c.Definition(defID))
+		subPath := c.debugDecoratorPath(c.GetDefinition(defID))
 		subPathInfo := ""
 
 		if len(subPath) > 0 {

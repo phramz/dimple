@@ -1,5 +1,5 @@
 // nolint
-package pkg
+package dimple
 
 import (
 	"context"
@@ -45,14 +45,14 @@ func TestWithDecorator(t *testing.T) {
 	const serviceC = "service.c"
 
 	ctn := New(context.TODO()).
-		With(serviceA, func(ctx FactoryCtx) (any, error) {
+		Add(serviceA, func(ctx FactoryCtx) (any, error) {
 			instanceA := &randomService{
 				Name: "A",
 			}
 
 			return instanceA, nil
 		}).
-		With(serviceB, Decorator(serviceA, func(ctx FactoryCtx) (any, error) {
+		Add(serviceB, Decorator(serviceA, func(ctx FactoryCtx) (any, error) {
 			instanceB := &decoratorService{
 				randomService: randomService{
 					Name: "B",
@@ -62,7 +62,7 @@ func TestWithDecorator(t *testing.T) {
 
 			return instanceB, nil
 		})).
-		With(serviceC, Decorator(serviceA, func(ctx FactoryCtx) (any, error) {
+		Add(serviceC, Decorator(serviceA, func(ctx FactoryCtx) (any, error) {
 			instanceC := &decoratorService{
 				randomService: randomService{
 					Name: "C",
@@ -98,19 +98,19 @@ func TestWithFactoryFn(t *testing.T) {
 	instanceB := &randomService{}
 	instanceC := &randomService{}
 	ctn := New(context.TODO()).
-		With(serviceA, func(ctx FactoryCtx) (any, error) {
+		Add(serviceA, func(ctx FactoryCtx) (any, error) {
 			instanceA.Name = "A"
 
 			return instanceA, nil
 		}).
-		With(serviceB, func(ctx FactoryCtx) (any, error) {
+		Add(serviceB, func(ctx FactoryCtx) (any, error) {
 			a := ctx.Container().Get(serviceA).(*randomService) // depends on a
 			instanceB.Name = fmt.Sprintf(`%s->%s`, a.Name, "B")
 			instanceB.A = a
 
 			return instanceB, nil
 		}).
-		With(serviceC, func(ctx FactoryCtx) (any, error) {
+		Add(serviceC, func(ctx FactoryCtx) (any, error) {
 			b := ctx.Container().Get(serviceB).(*randomService) // depends on b
 			instanceC.Name = fmt.Sprintf(`%s->%s`, b.Name, "C")
 			instanceC.B = b
@@ -155,19 +155,19 @@ func TestWithServiceDef(t *testing.T) {
 	instanceC := &randomService{}
 
 	ctn := New(context.TODO()).
-		With(serviceA, Service(func(ctx FactoryCtx) (any, error) {
+		Add(serviceA, Service(func(ctx FactoryCtx) (any, error) {
 			instanceA.Name = "A"
 
 			return instanceA, nil
 		})).
-		With(serviceB, Service(func(ctx FactoryCtx) (any, error) {
+		Add(serviceB, Service(func(ctx FactoryCtx) (any, error) {
 			a := ctx.Container().Get(serviceA).(*randomService) // depends on a
 			instanceB.Name = fmt.Sprintf(`%s->%s`, a.Name, "B")
 			instanceB.A = a
 
 			return instanceB, nil
 		})).
-		With(serviceC, Service(func(ctx FactoryCtx) (any, error) {
+		Add(serviceC, Service(func(ctx FactoryCtx) (any, error) {
 			b := ctx.Container().Get(serviceB).(*randomService) // depends on b
 			instanceC.Name = fmt.Sprintf(`%s->%s`, b.Name, "C")
 			instanceC.B = b
@@ -208,7 +208,7 @@ func TestCircularDependency(t *testing.T) {
 	const serviceC = "service.c"
 
 	ctn := New(context.TODO()).
-		With(serviceA, func(ctx FactoryCtx) (any, error) {
+		Add(serviceA, func(ctx FactoryCtx) (any, error) {
 			instanceA := &randomService{
 				Name: "A",
 				B:    ctx.Container().Get(serviceB).(*randomService), // depends on b
@@ -216,7 +216,7 @@ func TestCircularDependency(t *testing.T) {
 
 			return instanceA, nil
 		}).
-		With(serviceB, func(ctx FactoryCtx) (any, error) {
+		Add(serviceB, func(ctx FactoryCtx) (any, error) {
 			instanceB := &randomService{
 				Name: "B",
 				C:    ctx.Container().Get(serviceC).(*randomService), // depends on c
@@ -224,7 +224,7 @@ func TestCircularDependency(t *testing.T) {
 
 			return instanceB, nil
 		}).
-		With(serviceC, func(ctx FactoryCtx) (any, error) {
+		Add(serviceC, func(ctx FactoryCtx) (any, error) {
 			instanceC := &randomService{
 				Name: "C",
 				A:    ctx.Container().Get(serviceA).(*randomService), // depends on A
