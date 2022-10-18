@@ -1,4 +1,4 @@
-package pkg
+package dimple
 
 var _ ServiceDef = (*serviceDef)(nil)
 

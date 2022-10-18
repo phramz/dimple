@@ -1,4 +1,4 @@
-package pkg
+package dimple
 
 import (
 	"context"

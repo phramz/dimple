@@ -1,4 +1,4 @@
-package pkg
+package dimple
 
 var _ DecoratorDef = (*decoratorDef)(nil)
 
