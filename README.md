@@ -15,6 +15,7 @@ TODO
 
 This tool is base on multiple awesome open source libraries shout-outs to:
 * https://github.com/silexphp/Pimple
+* https://github.com/thoas/go-funk
 * https://github.com/stretchr/testify
 
 ## License
