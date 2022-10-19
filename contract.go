@@ -4,43 +4,13 @@ import "context"
 
 // Container abstraction interface
 type Container interface {
-	// Add will add a new Definition to the container. The val argument can be either a
-	// - FactoryFn for a plain context aware service definition
-	// - Fn for a plain service definition
+	// Add will add a newInstance Definition to the container. The val argument can be either a
 	// - DecoratorDef if you want to decorate another service
 	// - ServiceDef for a custom service definition
 	// - ParamDef any parameter value of any type
-	// ... any other type is implicitly considered a ParamDef
 	// Beware that With will panic when called after booting the Container explicit either (by calling Boot()) or
 	// implicit by the first external Get call.
-	Add(id string, val any) Container
-
-	// Fn will add a new anonymous factory function as service to the container.
-	// This is just a convenience method. See Add for further details
-	Fn(id string, fn Fn) Container
-
-	// FactoryFn will add a new context aware factory function as service to the container.
-	// This is just a convenience method. See Add for further details
-	FactoryFn(id string, fn FactoryFn) Container
-
-	// Definition will add a new definition as service to the container. It could be either
-	// - DecoratorDef if you want to decorate another service
-	// - ServiceDef for a custom service definition
-	// - ParamDef any parameter value of any type
-	// This is just a convenience method. See Add for further details
-	Definition(def Definition) Container
-
-	// Decorator will add a new Decorator to the container.
-	// This is just a convenience method. See Add for further details
-	Decorator(def DecoratorDef) Container
-
-	// Service will add a new Service to the container.
-	// This is just a convenience method. See Add for further details
-	Service(def ServiceDef) Container
-
-	// Param will add a new Param to the container.
-	// This is just a convenience method. See Add for further details
-	Param(def ParamDef) Container
+	Add(def Definition) Container
 
 	// Get will return the value (for ParamDef) or the instance (for ServiceDef and DecoratorDef) by id
 	// Beware that this can panic at runtime if any instantiation errors occur! Consider to explicitly call Boot()
@@ -80,22 +50,22 @@ type ParamDef interface {
 // ServiceDef abstraction interface
 type ServiceDef interface {
 	Definition
-	Fn() FactoryFn
+	Factory() Factory
 	Instance() any
 	WithID(id string) ServiceDef
-	WithFn(fn FactoryFn) ServiceDef
+	WithFactory(factory Factory) ServiceDef
 	WithInstance(instance any) ServiceDef
 }
 
 // DecoratorDef abstraction interface
 type DecoratorDef interface {
 	Definition
-	Fn() FactoryFn
+	Factory() Factory
 	Instance() any
 	Decorates() string
 	Decorated() Definition
 	WithID(id string) DecoratorDef
-	WithFn(fn FactoryFn) DecoratorDef
+	WithFactory(factory Factory) DecoratorDef
 	WithInstance(instance any) DecoratorDef
 	WithDecorates(id string) DecoratorDef
 	WithDecorated(def Definition) DecoratorDef
@@ -109,8 +79,17 @@ type FactoryCtx interface {
 	ServiceID() string
 }
 
-// FactoryFn to define a factory functions
-type FactoryFn = func(ctx FactoryCtx) (any, error)
+type Factory interface {
+	FactoryFn() FactoryFn
+	FactoryFnWithError() FactoryFnWithError
+	FactoryFnWithContext() FactoryFnWithContext
+}
 
-// Fn to define an anonymous functions
-type Fn = func() (any, error)
+// FactoryFn plain without anything
+type FactoryFn = func() any
+
+// FactoryFnWithError to define an anonymous functions
+type FactoryFnWithError = func() (any, error)
+
+// FactoryFnWithContext to define an anonymous functions
+type FactoryFnWithContext = func(ctx FactoryCtx) (any, error)

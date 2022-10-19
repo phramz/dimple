@@ -11,7 +11,7 @@ import (
 
 var _ Container = (*container)(nil)
 
-// New returns a new container instance
+// New returns a newInstance container instance
 func New(ctx context.Context) Container {
 	return &container{
 		ctx:         ctx,
@@ -30,36 +30,12 @@ type container struct {
 	definitions map[string]Definition
 }
 
-func (c *container) Add(id string, val any) Container {
+func (c *container) Add(def Definition) Container {
 	if c.booted {
 		panic(ErrContainerAlreadyBooted)
 	}
 
-	return c.add(id, val)
-}
-
-func (c *container) Fn(id string, fn Fn) Container {
-	return c.Add(id, fn)
-}
-
-func (c *container) FactoryFn(id string, fn FactoryFn) Container {
-	return c.Add(id, fn)
-}
-
-func (c *container) Definition(def Definition) Container {
-	return c.Add(def.Id(), def)
-}
-
-func (c *container) Decorator(def DecoratorDef) Container {
-	return c.Add(def.Id(), def)
-}
-
-func (c *container) Service(def ServiceDef) Container {
-	return c.Add(def.Id(), def)
-}
-
-func (c *container) Param(def ParamDef) Container {
-	return c.Add(def.Id(), def)
+	return c.add(def.Id(), def)
 }
 
 func (c *container) Ctx() context.Context {
@@ -120,14 +96,8 @@ func (c *container) add(id string, val any) Container {
 		def = t.WithID(id)
 	case Definition:
 		panic(fmt.Sprintf(`unsupported type of definiton "%T" for service "%s"`, val, id))
-	case FactoryFn:
-		def = Service(t).WithID(id)
-	case Fn:
-		def = Service(func(ctx FactoryCtx) (any, error) {
-			return t()
-		}).WithID(id)
 	default:
-		def = Param(val).WithID(id)
+		panic(fmt.Sprintf(`unsupported type definition %T`, val))
 	}
 
 	if c.parent == nil {
@@ -141,11 +111,61 @@ func (c *container) add(id string, val any) Container {
 	return c
 }
 
-func (c *container) get(id string) (any, error) {
-	var targetInstance any
-	var instance any
+func (c *container) newInstance(def Definition) (any, error) {
 	var err error
+	var target, instance any
+	var f Factory
 
+	if svc, ok := def.(ServiceDef); ok {
+		f = svc.Factory()
+	}
+
+	if svc, ok := def.(DecoratorDef); ok {
+		f = svc.Factory()
+	}
+
+	if f == nil {
+		return nil, fmt.Errorf(`%w: cannot instantiate service "%s" due to missing factory`, ErrServiceFactoryFailed, def.Id())
+	}
+
+	if svc, ok := def.(DecoratorDef); ok {
+		target, err = c.get(svc.Decorates())
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if fn := f.FactoryFnWithContext(); fn != nil {
+		instance, err = fn(newFactoryCtx(c.ctx, c, target))
+		if err != nil {
+			return nil, fmt.Errorf(`%w: cannot instantiate service "%s: %s"`, ErrServiceFactoryFailed, def.Id(), err.Error())
+		}
+
+		return instance, err
+	}
+
+	if fn := f.FactoryFnWithError(); fn != nil {
+		instance, err = fn()
+		if err != nil {
+			return nil, fmt.Errorf(`%w: cannot instantiate service "%s: %s"`, ErrServiceFactoryFailed, def.Id(), err.Error())
+		}
+
+		return instance, err
+	}
+
+	if fn := f.FactoryFn(); fn != nil {
+		instance = fn()
+		if instance == nil {
+			return nil, fmt.Errorf(`%w: cannot instantiate service "%s: factory returned nil"`, ErrServiceFactoryFailed, def.Id())
+		}
+
+		return instance, nil
+	}
+
+	return nil, fmt.Errorf(`%w: cannot instantiate service "%s: no factory function provided"`, ErrServiceFactoryFailed, def.Id())
+}
+
+func (c *container) get(id string) (any, error) {
 	def := c.GetDefinition(id)
 	if def == nil {
 		return nil, fmt.Errorf(`%w: cannot find definiton for service "%s"`, ErrUnknownService, id)
@@ -162,54 +182,59 @@ func (c *container) get(id string) (any, error) {
 
 	indirection := c.indirect(id)
 	if svc, ok := def.(ServiceDef); ok {
-		if svc.Instance() != nil {
-			// already instantiated?
-			return svc.Instance(), nil
-		}
-
-		// we need to instantiate a new service
-		instance, err = svc.Fn()(newFactoryCtx(indirection.ctx, indirection, targetInstance))
-		if err != nil {
-			return nil, fmt.Errorf(`%w: cannot instantiate service "%s: %s"`, ErrServiceFactoryFailed, id, err.Error())
-		}
-
-		c.add(id, svc.WithInstance(instance))
-
-		return instance, nil
+		return indirection.getService(svc)
 	}
 
 	if svc, ok := def.(DecoratorDef); ok {
-		if svc.Instance() != nil {
-			// already instantiated?
-			return svc.Instance(), nil
-		}
-
-		// we need to instantiate a new service
-		if indirection.isCircularDependency(svc.Decorates()) {
-			return nil, fmt.Errorf(`%w: %s`, ErrCircularDependency, indirection.debugPathInfo(indirection.path(svc.Decorates())))
-		}
-
-		targetDef := indirection.GetDefinition(svc.Decorates())
-		targetInstance, err = indirection.get(svc.Decorates())
-		if err != nil {
-			return nil, err
-		}
-
-		instance, err = svc.Fn()(newFactoryCtx(indirection.ctx, indirection, targetInstance))
-		if err != nil {
-			return nil, fmt.Errorf(`%w: cannot instantiate service "%s: %s"`, ErrServiceFactoryFailed, id, err.Error())
-		}
-
-		target := svc.WithInstance(instance).
-			WithDecorated(targetDef)
-
-		c.add(id, target)
-		c.add(svc.Decorates(), target)
-
-		return instance, nil
+		return indirection.getDecoration(svc)
 	}
 
 	panic(fmt.Sprintf(`unsupported type of definiton "%T" for service "%s"`, def, id))
+}
+
+func (c *container) getDecoration(svc DecoratorDef) (any, error) {
+	if svc.Instance() != nil {
+		// already instantiated?
+		return svc.Instance(), nil
+	}
+
+	// we need to instantiate a newInstance service
+	if c.isCircularDependency(svc.Decorates()) {
+		return nil, fmt.Errorf(`%w: %s`, ErrCircularDependency, c.debugPathInfo(c.path(svc.Decorates())))
+	}
+
+	instance, err := c.newInstance(svc)
+	if err != nil {
+		return nil, err
+	}
+
+	targetDef := c.GetDefinition(svc.Decorates())
+	if err != nil {
+		return nil, err
+	}
+
+	target := svc.WithInstance(instance).WithDecorated(targetDef)
+	c.add(svc.Id(), target)
+	c.add(svc.Decorates(), target)
+
+	return instance, nil
+}
+
+func (c *container) getService(def ServiceDef) (any, error) {
+	if def.Instance() != nil {
+		// already instantiated?
+		return def.Instance(), nil
+	}
+
+	// we need to instantiate a newInstance service
+	instance, err := c.newInstance(def)
+	if err != nil {
+		return nil, err
+	}
+
+	c.add(def.Id(), def.WithInstance(instance))
+
+	return instance, nil
 }
 
 func (c *container) indirect(id string) *container {

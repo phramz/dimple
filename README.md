@@ -6,11 +6,58 @@ Lightweight dependency injection container library for Golang inspired by [Pimpl
 ## Install
 
 ```shell
-$ go get github.com/phramz/dimple
+go get github.com/phramz/dimple
 ```
 ## Usage
 
-Have a look a the [examples](./examples) folder for more code.
+```go
+package example
+
+import (
+    "context"
+    "github.com/phramz/dimple"
+    "github.com/sirupsen/logrus"
+    "os"
+    "time"
+)
+
+func basic() {
+    const (
+        ServiceLogger      = "logger"
+        ServiceTimeService = "service.time"
+        ParamTimeFormat    = "config.time_format"
+    )
+
+    container := dimple.New(context.Background()).
+        // let's add our favorite time format as parameter to the container so other services can pick it up
+        Add(dimple.Param(ParamTimeFormat, time.Kitchen)).
+
+        // we can just add an anonymous function as factory for our "logger" service since it does not depend on other services
+        // and therefore does not need any context
+        Add(dimple.Service(ServiceLogger, dimple.WithFn(func() any {
+            logger := logrus.New()
+            logger.SetOutput(os.Stdout)
+
+            return logger
+        }))).
+
+        // this service depends on the "logger" to out put the time
+        // that is why we need to use FactoryFn to get to the container
+        Add(dimple.Service(ServiceTimeService, dimple.WithContextFn(func(ctx dimple.FactoryCtx) (any, error) {
+            logger := ctx.Container().Get(ServiceLogger).(*logrus.Logger)
+            format := ctx.Container().Get(ParamTimeFormat).(string)
+
+            return &TimeService{
+                logger: logger.WithField("service", ctx.ServiceID()),
+                format: format,
+            }, nil
+        })))
+
+    timeService := container.Get(ServiceTimeService).(*TimeService)
+    timeService.Now()
+}
+```
+Have a look at the [examples](./examples) folder for full code examples.
 
 ### Services
 

@@ -2,11 +2,13 @@ package dimple
 
 var _ ParamDef = (*paramDef)(nil)
 
-// Param returns a new regular value definition
-func Param(v any) ParamDef {
+// Param returns a newInstance regular value definition
+func Param(id string, v any) ParamDef {
 	return &paramDef{
-		definition: definition{},
-		value:      v,
+		definition: definition{
+			id: id,
+		},
+		value: v,
 	}
 }
 
