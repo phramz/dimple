@@ -8,6 +8,12 @@ func WithFn(fn FactoryFn) Factory {
 	}
 }
 
+func WithInstance(instance any) Factory {
+	return &factory{
+		instance: instance,
+	}
+}
+
 func WithContextFn(fn FactoryFnWithContext) Factory {
 	return &factory{
 		fnWithContext: fn,
@@ -24,6 +30,7 @@ type factory struct {
 	fn            FactoryFn
 	fnWithContext FactoryFnWithContext
 	fnWithError   FactoryFnWithError
+	instance      any
 }
 
 func (f *factory) FactoryFn() FactoryFn {
@@ -36,4 +43,8 @@ func (f *factory) FactoryFnWithError() FactoryFnWithError {
 
 func (f *factory) FactoryFnWithContext() FactoryFnWithContext {
 	return f.fnWithContext
+}
+
+func (f *factory) Instance() any {
+	return f.instance
 }

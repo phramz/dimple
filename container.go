@@ -3,6 +3,7 @@ package dimple
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 	"sync"
 
@@ -28,6 +29,44 @@ type container struct {
 	parent      *container
 	ctx         context.Context
 	definitions map[string]Definition
+}
+
+func (c *container) Inject(target any) error {
+	if !c.isInjectable(target) {
+		return fmt.Errorf(`unable to inject to target. it has to been a pointer to a struct an addressable, got "%T"`, target)
+	}
+
+	v := reflect.ValueOf(target).Elem()
+	for i := 0; i < v.NumField(); i++ {
+		typeField := v.Type().Field(i)
+		if id, ok := typeField.Tag.Lookup("dimple"); ok {
+			instance := c.Get(id)
+			fieldVal := v.Field(i)
+			if !fieldVal.CanSet() {
+				return fmt.Errorf(`unable to inject value to field "%s" since it is not writable`, typeField.Name)
+			}
+
+			fieldVal.Set(reflect.ValueOf(instance))
+		}
+	}
+
+	return nil
+}
+
+func (c *container) isInjectable(target any) bool {
+	if reflect.ValueOf(target).Kind() != reflect.Pointer {
+		return false
+	}
+
+	if reflect.ValueOf(target).Elem().Kind() != reflect.Struct {
+		return false
+	}
+
+	if !reflect.ValueOf(target).Elem().CanAddr() {
+		return false
+	}
+
+	return true
 }
 
 func (c *container) Add(def Definition) Container {
@@ -135,6 +174,10 @@ func (c *container) newInstance(def Definition) (any, error) {
 		}
 	}
 
+	if instance = f.Instance(); instance != nil {
+		return instance, nil
+	}
+
 	if fn := f.FactoryFnWithContext(); fn != nil {
 		instance, err = fn(newFactoryCtx(c.ctx, c, target))
 		if err != nil {
@@ -208,6 +251,12 @@ func (c *container) getDecoration(svc DecoratorDef) (any, error) {
 		return nil, err
 	}
 
+	if c.isInjectable(instance) {
+		if err = c.Inject(instance); err != nil {
+			return nil, err
+		}
+	}
+
 	targetDef := c.GetDefinition(svc.Decorates())
 	if err != nil {
 		return nil, err
@@ -230,6 +279,12 @@ func (c *container) getService(def ServiceDef) (any, error) {
 	instance, err := c.newInstance(def)
 	if err != nil {
 		return nil, err
+	}
+
+	if c.isInjectable(instance) {
+		if err = c.Inject(instance); err != nil {
+			return nil, err
+		}
 	}
 
 	c.add(def.Id(), def.WithInstance(instance))
