@@ -12,6 +12,12 @@ type randomInterface interface {
 	SayMyName() string
 }
 
+type injectableService struct {
+	InjectedA randomInterface `dimple:"service.a"`
+	InjectedB randomInterface `dimple:"service.b"`
+	InjectedC randomInterface `dimple:"service.c"`
+}
+
 type randomService struct {
 	A    *randomService
 	B    *randomService
@@ -27,6 +33,37 @@ func TestNew(t *testing.T) {
 	c := New(context.TODO())
 
 	assert.NotNil(t, c)
+}
+
+func TestContainer_Inject(t *testing.T) {
+	const serviceA = "service.a"
+	const serviceB = "service.b"
+	const serviceC = "service.c"
+	const serviceD = "service.d"
+
+	out := &injectableService{}
+	ctn := New(context.TODO()).
+		Add(Service(serviceA, WithContextFn(func(ctx FactoryCtx) (any, error) {
+			return &randomService{Name: "A"}, nil
+		}))).
+		Add(Service(serviceB, WithContextFn(func(ctx FactoryCtx) (any, error) {
+			return &randomService{Name: "B"}, nil
+		}))).
+		Add(Service(serviceC, WithContextFn(func(ctx FactoryCtx) (any, error) {
+			return &randomService{Name: "C"}, nil
+		}))).
+		Add(Service(serviceD, WithInstance(out)))
+
+	actual := ctn.Get(serviceD).(*injectableService)
+	assert.Same(t, out, actual)
+
+	assert.Same(t, ctn.Get(serviceA), actual.InjectedA)
+	assert.Same(t, ctn.Get(serviceB), actual.InjectedB)
+	assert.Same(t, ctn.Get(serviceC), actual.InjectedC)
+
+	assert.Equal(t, "A", actual.InjectedA.SayMyName())
+	assert.Equal(t, "B", actual.InjectedB.SayMyName())
+	assert.Equal(t, "C", actual.InjectedC.SayMyName())
 }
 
 func TestCircularDependency(t *testing.T) {

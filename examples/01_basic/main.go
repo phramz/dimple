@@ -19,7 +19,7 @@ const (
 	ParamTimeFormat    = "config.time_format"
 )
 
-// go run basic.go
+// go run main.go
 func main() {
 	container := dimple.New(context.Background()).
 		// let's add our favorite time format as parameter to the container so other services can pick it up

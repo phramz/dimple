@@ -10,6 +10,7 @@ go get github.com/phramz/dimple
 ```
 ## Usage
 
+Here a very basic example how it works in general:
 ```go
 package example
 
@@ -59,11 +60,11 @@ func basic() {
 ```
 Have a look at the [examples](./examples) folder for full code examples.
 
+### Tags
+
 ### Services
 
 ### Parameters
-
-## Advanced
 
 ### Decorators
 

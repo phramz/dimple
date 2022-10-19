@@ -17,6 +17,16 @@ type Container interface {
 	// before using it
 	Get(id string) any
 
+	// Inject will take a struct as target and sets the field values according to tagged service ids.
+	// Example:
+	//
+	// type MyStruct struct {
+	//     Logger          *logrus.Logger `dimple:"service.logger"`
+	//     TimeService     *TimeService   `dimple:"service.time"`
+	//     TimeFormat      string         `dimple:"param.time_format"`
+	// }
+	Inject(target any) error
+
 	// Has will return TRUE when a Definition by given id exist, otherwise false
 	Has(id string) bool
 
@@ -83,6 +93,7 @@ type Factory interface {
 	FactoryFn() FactoryFn
 	FactoryFnWithError() FactoryFnWithError
 	FactoryFnWithContext() FactoryFnWithContext
+	Instance() any
 }
 
 // FactoryFn plain without anything
