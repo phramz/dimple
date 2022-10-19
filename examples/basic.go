@@ -22,22 +22,21 @@ const (
 // go run basic.go
 func main() {
 	container := dimple.New(context.Background()).
-
 		// let's add our favorite time format as parameter to the container so other services can pick it up
-		Add(ParamTimeFormat, time.Kitchen).
+		Add(dimple.Param(ParamTimeFormat, time.Kitchen)).
 
 		// we can just add an anonymous function as factory for our "logger" service since it does not depend on other services
 		// and therefore does not need any context
-		Fn(ServiceLogger, func() (any, error) {
+		Add(dimple.Service(ServiceLogger, dimple.WithFn(func() any {
 			logger := logrus.New()
 			logger.SetOutput(os.Stdout)
 
-			return logger, nil
-		}).
+			return logger
+		}))).
 
 		// this service depends on the "logger" to out put the time
 		// that is why we need to use FactoryFn to get to the container
-		FactoryFn(ServiceTimeService, func(ctx dimple.FactoryCtx) (any, error) {
+		Add(dimple.Service(ServiceTimeService, dimple.WithContextFn(func(ctx dimple.FactoryCtx) (any, error) {
 			logger := ctx.Container().Get(ServiceLogger).(*logrus.Logger)
 			format := ctx.Container().Get(ParamTimeFormat).(string)
 
@@ -45,7 +44,7 @@ func main() {
 				logger: logger.WithField("service", ctx.ServiceID()),
 				format: format,
 			}, nil
-		})
+		})))
 
 	// this is not necessary, but recommend since it will instantiate all service eager and
 	// would return an error if there are issues. We don't want it to panic during runtime but rather error on startup

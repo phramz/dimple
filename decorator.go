@@ -2,18 +2,20 @@ package dimple
 
 var _ DecoratorDef = (*decoratorDef)(nil)
 
-// Decorator returns a new regular service definition
-func Decorator(decorates string, fn FactoryFn) DecoratorDef {
+// Decorator returns a newInstance regular service definition
+func Decorator(id string, decorates string, factory Factory) DecoratorDef {
 	return &decoratorDef{
-		definition: definition{},
-		fn:         fn,
-		decorates:  decorates,
+		definition: definition{
+			id: id,
+		},
+		factory:   factory,
+		decorates: decorates,
 	}
 }
 
 type decoratorDef struct {
 	definition
-	fn        FactoryFn
+	factory   Factory
 	instance  any
 	decorates string
 	decorated Definition
@@ -23,8 +25,8 @@ func (d *decoratorDef) Decorated() Definition {
 	return d.decorated
 }
 
-func (d *decoratorDef) Fn() FactoryFn {
-	return d.fn
+func (d *decoratorDef) Factory() Factory {
+	return d.factory
 }
 
 func (d *decoratorDef) Instance() any {
@@ -42,9 +44,9 @@ func (d *decoratorDef) WithID(id string) DecoratorDef {
 	return c
 }
 
-func (d *decoratorDef) WithFn(fn FactoryFn) DecoratorDef {
+func (d *decoratorDef) WithFactory(factory Factory) DecoratorDef {
 	c := d.clone()
-	c.fn = fn
+	c.factory = factory
 
 	return c
 }
@@ -73,7 +75,7 @@ func (d *decoratorDef) WithDecorated(def Definition) DecoratorDef {
 func (d *decoratorDef) clone() *decoratorDef {
 	return &decoratorDef{
 		definition: *d.definition.clone(),
-		fn:         d.Fn(),
+		factory:    d.Factory(),
 		instance:   d.Instance(),
 		decorates:  d.Decorates(),
 		decorated:  d.Decorated(),
