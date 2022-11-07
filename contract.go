@@ -21,9 +21,9 @@ type Container interface {
 	// Example:
 	//
 	// type MyStruct struct {
-	//     Logger          *logrus.Logger `dimple:"service.logger"`
-	//     TimeService     *TimeService   `dimple:"service.time"`
-	//     TimeFormat      string         `dimple:"param.time_format"`
+	//     Logger          *logrus.Logger `inject:"service.logger"`
+	//     TimeService     *TimeService   `inject:"service.time"`
+	//     TimeFormat      string         `inject:"param.time_format"`
 	// }
 	Inject(target any) error
 

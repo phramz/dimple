@@ -13,9 +13,9 @@ type randomInterface interface {
 }
 
 type injectableService struct {
-	InjectedA randomInterface `dimple:"service.a"`
-	InjectedB randomInterface `dimple:"service.b"`
-	InjectedC randomInterface `dimple:"service.c"`
+	InjectedA randomInterface `inject:"service.a"`
+	InjectedB randomInterface `inject:"service.b"`
+	InjectedC randomInterface `inject:"service.c"`
 }
 
 type randomService struct {
