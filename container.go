@@ -39,7 +39,7 @@ func (c *container) Inject(target any) error {
 	v := reflect.ValueOf(target).Elem()
 	for i := 0; i < v.NumField(); i++ {
 		typeField := v.Type().Field(i)
-		if id, ok := typeField.Tag.Lookup("dimple"); ok {
+		if id, ok := typeField.Tag.Lookup("inject"); ok {
 			instance := c.Get(id)
 			fieldVal := v.Field(i)
 			if !fieldVal.CanSet() {
@@ -52,23 +52,6 @@ func (c *container) Inject(target any) error {
 
 	return nil
 }
-
-func (c *container) isInjectable(target any) bool {
-	if reflect.ValueOf(target).Kind() != reflect.Pointer {
-		return false
-	}
-
-	if reflect.ValueOf(target).Elem().Kind() != reflect.Struct {
-		return false
-	}
-
-	if !reflect.ValueOf(target).Elem().CanAddr() {
-		return false
-	}
-
-	return true
-}
-
 func (c *container) Add(def Definition) Container {
 	if c.booted {
 		panic(ErrContainerAlreadyBooted)
@@ -367,6 +350,22 @@ func (c *container) allServiceIDs() []string {
 
 		return ok
 	})
+}
+
+func (c *container) isInjectable(target any) bool {
+	if reflect.ValueOf(target).Kind() != reflect.Pointer {
+		return false
+	}
+
+	if reflect.ValueOf(target).Elem().Kind() != reflect.Struct {
+		return false
+	}
+
+	if !reflect.ValueOf(target).Elem().CanAddr() {
+		return false
+	}
+
+	return true
 }
 
 func (c *container) clone() *container {

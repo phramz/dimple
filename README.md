@@ -12,17 +12,7 @@ go get github.com/phramz/dimple
 
 Here a very basic example how it works in general:
 ```go
-package example
-
-import (
-    "context"
-    "github.com/phramz/dimple"
-    "github.com/sirupsen/logrus"
-    "os"
-    "time"
-)
-
-func basic() {
+func main() {
     const (
         ServiceLogger      = "logger"
         ServiceTimeService = "service.time"
@@ -30,10 +20,12 @@ func basic() {
     )
 
     container := dimple.New(context.Background()).
-        // let's add our favorite time format as parameter to the container so other services can pick it up
+        // let's add our favorite time format as parameter to the container so other
+		// services can pick it up.
         Add(dimple.Param(ParamTimeFormat, time.Kitchen)).
 
-        // we can just add an anonymous function as factory for our "logger" service since it does not depend on other services
+        // we can just add an anonymous function as factory for our "logger" service
+		// since it does not depend on other services
         // and therefore does not need any context
         Add(dimple.Service(ServiceLogger, dimple.WithFn(func() any {
             logger := logrus.New()
@@ -42,8 +34,8 @@ func basic() {
             return logger
         }))).
 
-        // this service depends on the "logger" to out put the time
-        // that is why we need to use FactoryFn to get to the container
+        // this service depends on the "logger" to output the time and "config.time_format" for the desired format.
+        // that is why we need to use WithContextFn to get to the container and context
         Add(dimple.Service(ServiceTimeService, dimple.WithContextFn(func(ctx dimple.FactoryCtx) (any, error) {
             logger := ctx.Container().Get(ServiceLogger).(*logrus.Logger)
             format := ctx.Container().Get(ParamTimeFormat).(string)
@@ -58,19 +50,103 @@ func basic() {
     timeService.Now()
 }
 ```
-Have a look at the [examples](./examples) folder for full code examples.
+
+Full example see [examples/basic/main.go](./examples/basic/main.go)
 
 ### Tags
 
-### Services
+It is possible to annotate public struct members using the `inject` tag to get all necessary dependencies
+without explicitly registering a struct as service and the need of a factory function.
 
-### Parameters
+```go
+type TaggedTimeService struct {
+	Logger *logrus.Logger `inject:"logger"`             // each tag point to the registered definition ID
+	Format string         `inject:"config.time_format"` // fields must be public for this to work!
+}
+
+func (t *TaggedTimeService) Now() {
+	t.Logger.Infof("It is %s", time.Now().Format(t.Format))
+}
+
+func main() {
+	container := dimple.New(context.Background()).
+		Add(dimple.Param(ParamTimeFormat, time.Kitchen)).
+		Add(dimple.Service(ServiceLogger, dimple.WithInstance(logrus.New()))).
+		Add(dimple.Service(ServiceTimeService, dimple.WithInstance(&TaggedTimeService{})))
+
+	go func() {
+		timeService := container.Get(ServiceTimeService).(*TaggedTimeService)
+
+		for {
+			select {
+			case <-container.Ctx().Done():
+				return
+			default:
+				// we will output the time every second
+				time.Sleep(time.Second)
+				timeService.Now()
+
+				// if you want to inject services into struct
+				// which is not itself registered use Inject()
+				anotherInstance := &TaggedTimeService{}
+				if err := container.Inject(anotherInstance); err != nil {
+					panic(err)
+				}
+
+				anotherInstance.Now()
+			}
+		}
+	}()
+
+	<-container.Ctx().Done()
+}
+
+```
+Full example see [examples/basic/main.go](./examples/basic/main.go)
 
 ### Decorators
 
+Decorator can be used to wrap a service with another.
+
+```go
+
+func main() {
+	container := dimple.New(context.Background()).
+		Add(dimple.Param(ParamTimeFormat, time.Kitchen)).
+		Add(dimple.Service(ServiceLogger, dimple.WithInstance(logrus.New()))).
+		Add(dimple.Service(ServiceTime, dimple.WithInstance(&OriginTimeService{}))).
+		Add(dimple.Decorator(ServiceTimeDecorator, ServiceTime, dimple.WithContextFn(func(ctx dimple.FactoryCtx) (any, error) {
+			return &TimeServiceDecorator{
+				// we can get the inner (origin) instance if we need to
+				Decorated: ctx.Decorated().(TimeServiceInterface),
+			}, nil
+		})))
+
+	go func() {
+		// now when we Get() the ServiceTime, we will actually receive the TimeServiceDecorator
+		timeService := container.Get(ServiceTime).(TimeServiceInterface)
+
+		for {
+			select {
+			case <-container.Ctx().Done():
+				return
+			default:
+				// we will output the time every second
+				time.Sleep(time.Second)
+				timeService.Now()
+			}
+		}
+	}()
+
+	<-container.Ctx().Done()
+}
+```
+
+Full example see [examples/decorator/main.go](./examples/decorator/main.go)
+
 ## Credits
 
-This library is based on various awesome open source libraries shout-outs to:
+This library is based on various awesome open source libraries kudos going to:
 * https://github.com/silexphp/Pimple
 * https://github.com/thoas/go-funk
 * https://github.com/stretchr/testify
