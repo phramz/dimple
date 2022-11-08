@@ -2,42 +2,48 @@ package dimple
 
 import "context"
 
+// ContainerBuilder abstraction interface
+type ContainerBuilder interface {
+	// Add will add a new Definition to the ContainerBuilder. The val argument can be either a
+	// - ServiceDef for a service
+	// - DecoratorDef if you want to decorate another service
+	// - ParamDef any parameter value of any type
+	Add(def Definition) ContainerBuilder
+
+	// Get returns a Definition by its ID, otherwise nil if it does not exist
+	Get(id string) Definition
+
+	// Has returns TRUE if a Definition of given ID exists
+	Has(id string) bool
+}
+
 // Container abstraction interface
 type Container interface {
-	// Add will add a newInstance Definition to the container. The val argument can be either a
-	// - DecoratorDef if you want to decorate another service
-	// - ServiceDef for a custom service definition
-	// - ParamDef any parameter value of any type
-	// Beware that With will panic when called after booting the Container explicit either (by calling Boot()) or
-	// implicit by the first external Get call.
-	Add(def Definition) Container
+	// Has will return TRUE when a service or param by given id exist, otherwise FALSE
+	Has(id string) bool
 
-	// Get will return the value (for ParamDef) or the instance (for ServiceDef and DecoratorDef) by id
-	// Beware that this can panic at runtime if any instantiation errors occur! Consider to explicitly call Boot()
-	// before using it
-	Get(id string) any
+	// Get will return a plain value (for ParamDef) or the instance (for ServiceDef and DecoratorDef) by id
+	Get(id string) (any, error)
+
+	// MustGet will return the param value or service instance by id
+	// Beware that this can panic at runtime if any instantiation errors occur!
+	// Consider to explicitly call Boot() before using it
+	MustGet(id string) any
 
 	// Inject will take a struct as target and sets the field values according to tagged service ids.
 	// Example:
 	//
 	// type MyStruct struct {
-	//     Logger          *logrus.Logger `inject:"service.logger"`
 	//     TimeService     *TimeService   `inject:"service.time"`
 	//     TimeFormat      string         `inject:"param.time_format"`
 	// }
 	Inject(target any) error
 
-	// Has will return TRUE when a Definition by given id exist, otherwise false
-	Has(id string) bool
-
-	// GetDefinition returns a Definition by its ID, otherwise nil if it does not exist
-	GetDefinition(id string) Definition
-
-	// Boot will instantiate all service. It is not mandatory to call Boot() since all services (except decorated services)
-	// will get instantiated on demand (lazy) per default.
-	// If you want to ensure that every service could be instantiated it is recommended to call boot once all definitions
-	// are set. Otherwise, any error throw during service instantiation will cause a panic at runtime.
-	// Beware that after booting the Container it is no longer possible to call With()
+	// Boot will instantiate all services eagerly. It is not mandatory to call Boot() since all
+	// services (except decorated services) will be instantiated lazy per default.
+	// Beware that lazy instantiation can cause a panic at runtime when retrieving values via MustGet()!
+	// If you want to ensure that every service can be instantiated properly it is recommended to call Boot()
+	// before first use of MustGet().
 	Boot() error
 
 	// Ctx returns the context.Context

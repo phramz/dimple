@@ -22,41 +22,62 @@ const (
 
 // go run main.go
 func main() {
-	container := dimple.New(context.Background()).
+	// with the Builder we can configure the container
+	builder := dimple.Builder(
 		// let's add our favorite time format as parameter to the container so other services can pick it up
-		Add(dimple.Param(ParamTimeFormat, time.Kitchen)).
+		dimple.Param(ParamTimeFormat, time.Kitchen),
 
 		// we can just add an anonymous function as factory for our "logger" service since it does not depend on other services
 		// and therefore does not need any context
-		Add(dimple.Service(ServiceLogger, dimple.WithFn(func() any {
+		dimple.Service(ServiceLogger, dimple.WithFn(func() any {
 			logger := logrus.New()
 			logger.SetOutput(os.Stdout)
 
 			return logger
-		}))).
+		})),
 
 		// this service depends on the "logger" to output the time and "config.time_format" for the desired format.
 		// that is why we need to use WithContextFn to get to the container and context
-		Add(dimple.Service(ServiceTime, dimple.WithContextFn(func(ctx dimple.FactoryCtx) (any, error) {
+		dimple.Service(ServiceTime, dimple.WithContextFn(func(ctx dimple.FactoryCtx) (any, error) {
 			// you get can whatever dependency you need from the container as
 			// long as you do not create a circular dependency
-			logger := ctx.Container().Get(ServiceLogger).(*logrus.Logger)
-			format := ctx.Container().Get(ParamTimeFormat).(string)
+			logger := dimple.MustGetT[*logrus.Logger](ctx.Container(), ServiceLogger)
+			format := dimple.MustGetT[string](ctx.Container(), ParamTimeFormat)
 
 			return &TimeService{
 				logger: logger.WithField("service", ctx.ServiceID()),
 				format: format,
 			}, nil
-		})))
+		})),
+	)
+
+	// once we're done building we can retrieve a new instance of Container
+	container, err := builder.Build(context.Background())
+	if err != nil {
+		panic(err)
+	}
 
 	// this is not necessary, but recommend since it will instantiate all service eager and
 	// would return an error if there are issues. We don't want it to panic during runtime but rather error on startup
-	if err := container.Boot(); err != nil {
+	if err = container.Boot(); err != nil {
 		panic(err)
 	}
 
 	go func() {
-		timeService := container.Get(ServiceTime).(*TimeService)
+		// retrieve the *TimeService instance via generic function. Beware that illegal type assertions will panic
+		timeService := dimple.MustGetT[*TimeService](container, ServiceTime)
+
+		// if you want to handle error you might consider this approach:
+		//
+		// val, err := container.Get(ServiceTime)
+		// if err != nil {
+		// 		panic("cannot instantiate service")
+		// }
+		// timeService, ok := val.(*TimeService)
+		// if !ok {
+		// 		panic("illegal type assertion")
+		// }
+
 		for {
 			select {
 			case <-container.Ctx().Done():

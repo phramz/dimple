@@ -23,15 +23,15 @@ func TestDecoratorWithFn(t *testing.T) {
 	const serviceB = "service.b"
 	const serviceC = "service.c"
 
-	ctn := New(context.TODO()).
-		Add(Service(serviceA, WithFn(func() any {
+	builder := Builder(
+		Service(serviceA, WithFn(func() any {
 			instanceA := &randomService{
 				Name: "A",
 			}
 
 			return instanceA
-		}))).
-		Add(Decorator(serviceB, serviceA, WithFn(func() any {
+		})),
+		Decorator(serviceB, serviceA, WithFn(func() any {
 			instanceB := &decoratorService{
 				randomService: randomService{
 					Name: "B",
@@ -39,8 +39,8 @@ func TestDecoratorWithFn(t *testing.T) {
 			}
 
 			return instanceB
-		}))).
-		Add(Decorator(serviceC, serviceA, WithFn(func() any {
+		})),
+		Decorator(serviceC, serviceA, WithFn(func() any {
 			instanceC := &decoratorService{
 				randomService: randomService{
 					Name: "C",
@@ -48,22 +48,25 @@ func TestDecoratorWithFn(t *testing.T) {
 			}
 
 			return instanceC
-		})))
+		})),
+	)
 
-	a := ctn.Get(serviceA)
+	container := builder.MustBuild(context.TODO())
+
+	a := container.MustGet(serviceA)
 	assert.NotNil(t, a)
 	assert.IsType(t, &decoratorService{}, a)
-	assert.IsType(t, &decoratorDef{}, ctn.GetDefinition(serviceA))
+	assert.IsType(t, &decoratorDef{}, builder.Get(serviceA))
 
-	b := ctn.Get(serviceB)
+	b := container.MustGet(serviceB)
 	assert.NotNil(t, b)
 	assert.IsType(t, &decoratorService{}, b)
-	assert.IsType(t, &decoratorDef{}, ctn.GetDefinition(serviceA))
+	assert.IsType(t, &decoratorDef{}, builder.Get(serviceA))
 
-	c := ctn.Get(serviceC)
+	c := container.MustGet(serviceC)
 	assert.NotNil(t, c)
 	assert.IsType(t, &decoratorService{}, c)
-	assert.IsType(t, &decoratorDef{}, ctn.GetDefinition(serviceA))
+	assert.IsType(t, &decoratorDef{}, builder.Get(serviceA))
 }
 
 func TestDecoratorWithContext(t *testing.T) {
@@ -71,15 +74,15 @@ func TestDecoratorWithContext(t *testing.T) {
 	const serviceB = "service.b"
 	const serviceC = "service.c"
 
-	ctn := New(context.TODO()).
-		Add(Service(serviceA, WithContextFn(func(ctx FactoryCtx) (any, error) {
+	builder := Builder(
+		Service(serviceA, WithContextFn(func(ctx FactoryCtx) (any, error) {
 			instanceA := &randomService{
 				Name: "A",
 			}
 
 			return instanceA, nil
-		}))).
-		Add(Decorator(serviceB, serviceA, WithContextFn(func(ctx FactoryCtx) (any, error) {
+		})),
+		Decorator(serviceB, serviceA, WithContextFn(func(ctx FactoryCtx) (any, error) {
 			instanceB := &decoratorService{
 				randomService: randomService{
 					Name: "B",
@@ -88,8 +91,8 @@ func TestDecoratorWithContext(t *testing.T) {
 			}
 
 			return instanceB, nil
-		}))).
-		Add(Decorator(serviceC, serviceA, WithContextFn(func(ctx FactoryCtx) (any, error) {
+		})),
+		Decorator(serviceC, serviceA, WithContextFn(func(ctx FactoryCtx) (any, error) {
 			instanceC := &decoratorService{
 				randomService: randomService{
 					Name: "C",
@@ -98,19 +101,21 @@ func TestDecoratorWithContext(t *testing.T) {
 			}
 
 			return instanceC, nil
-		})))
+		})),
+	)
 
-	c := ctn.Get(serviceC)
+	container := builder.MustBuild(context.TODO())
+	c := container.MustGet(serviceC)
 	assert.NotNil(t, c)
 	assert.IsType(t, &decoratorService{}, c)
 	assert.EqualValues(t, "ABC", c.(randomInterface).SayMyName())
 
-	b := ctn.Get(serviceB)
+	b := container.MustGet(serviceB)
 	assert.NotNil(t, b)
 	assert.IsType(t, &decoratorService{}, b)
 	assert.EqualValues(t, "AB", b.(randomInterface).SayMyName())
 
-	a := ctn.Get(serviceA)
+	a := container.MustGet(serviceA)
 	assert.NotNil(t, a)
 	assert.IsType(t, &decoratorService{}, a)
 	assert.EqualValues(t, "ABC", a.(randomInterface).SayMyName())
@@ -121,15 +126,15 @@ func TestDecoratorWithError(t *testing.T) {
 	const serviceB = "service.b"
 	const serviceC = "service.c"
 
-	ctn := New(context.TODO()).
-		Add(Service(serviceA, WithErrorFn(func() (any, error) {
+	builder := Builder(
+		Service(serviceA, WithErrorFn(func() (any, error) {
 			instanceA := &randomService{
 				Name: "A",
 			}
 
 			return instanceA, nil
-		}))).
-		Add(Decorator(serviceB, serviceA, WithErrorFn(func() (any, error) {
+		})),
+		Decorator(serviceB, serviceA, WithErrorFn(func() (any, error) {
 			instanceB := &decoratorService{
 				randomService: randomService{
 					Name: "B",
@@ -137,8 +142,8 @@ func TestDecoratorWithError(t *testing.T) {
 			}
 
 			return instanceB, nil
-		}))).
-		Add(Decorator(serviceC, serviceA, WithErrorFn(func() (any, error) {
+		})),
+		Decorator(serviceC, serviceA, WithErrorFn(func() (any, error) {
 			instanceC := &decoratorService{
 				randomService: randomService{
 					Name: "C",
@@ -146,20 +151,23 @@ func TestDecoratorWithError(t *testing.T) {
 			}
 
 			return instanceC, nil
-		})))
+		})),
+	)
 
-	a := ctn.Get(serviceA)
+	container := builder.MustBuild(context.TODO())
+
+	a := container.MustGet(serviceA)
 	assert.NotNil(t, a)
 	assert.IsType(t, &decoratorService{}, a)
-	assert.IsType(t, &decoratorDef{}, ctn.GetDefinition(serviceA))
+	assert.IsType(t, &decoratorDef{}, builder.Get(serviceA))
 
-	b := ctn.Get(serviceB)
+	b := container.MustGet(serviceB)
 	assert.NotNil(t, b)
 	assert.IsType(t, &decoratorService{}, b)
-	assert.IsType(t, &decoratorDef{}, ctn.GetDefinition(serviceA))
+	assert.IsType(t, &decoratorDef{}, builder.Get(serviceA))
 
-	c := ctn.Get(serviceC)
+	c := container.MustGet(serviceC)
 	assert.NotNil(t, c)
 	assert.IsType(t, &decoratorService{}, c)
-	assert.IsType(t, &decoratorDef{}, ctn.GetDefinition(serviceA))
+	assert.IsType(t, &decoratorDef{}, builder.Get(serviceA))
 }

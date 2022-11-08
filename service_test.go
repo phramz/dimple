@@ -17,34 +17,37 @@ func TestServiceWithFn(t *testing.T) {
 	instanceA := &randomService{}
 	instanceB := &randomService{}
 	instanceC := &randomService{}
-	ctn := New(context.TODO()).
-		Add(Service(serviceA, WithFn(func() any {
+	builder := Builder(
+		Service(serviceA, WithFn(func() any {
 			instanceA.Name = "A"
 
 			return instanceA
-		}))).
-		Add(Service(serviceB, WithFn(func() any {
+		})),
+		Service(serviceB, WithFn(func() any {
 			instanceB.Name = "B"
 
 			return instanceB
-		}))).
-		Add(Service(serviceC, WithFn(func() any {
+		})),
+		Service(serviceC, WithFn(func() any {
 			instanceC.Name = "C"
 
 			return instanceC
-		})))
+		})),
+	)
 
-	c := ctn.Get(serviceC).(*randomService)
+	container := builder.MustBuild(context.TODO())
+
+	c := container.MustGet(serviceC).(*randomService)
 	assert.NotNil(t, c)
 	assert.EqualValues(t, "C", c.Name)
 	assert.Same(t, instanceC, c)
 
-	b := ctn.Get(serviceB).(*randomService)
+	b := container.MustGet(serviceB).(*randomService)
 	assert.NotNil(t, b)
 	assert.EqualValues(t, "B", b.Name)
 	assert.Same(t, instanceB, b)
 
-	a := ctn.Get(serviceA).(*randomService)
+	a := container.MustGet(serviceA).(*randomService)
 	assert.NotNil(t, a)
 	assert.EqualValues(t, "A", a.Name)
 	assert.Same(t, instanceA, a)
@@ -58,34 +61,37 @@ func TestServiceWithError(t *testing.T) {
 	instanceA := &randomService{}
 	instanceB := &randomService{}
 	instanceC := &randomService{}
-	ctn := New(context.TODO()).
-		Add(Service(serviceA, WithErrorFn(func() (any, error) {
+	builder := Builder(
+		Service(serviceA, WithErrorFn(func() (any, error) {
 			instanceA.Name = "A"
 
 			return instanceA, nil
-		}))).
-		Add(Service(serviceB, WithErrorFn(func() (any, error) {
+		})),
+		Service(serviceB, WithErrorFn(func() (any, error) {
 			instanceB.Name = "B"
 
 			return instanceB, nil
-		}))).
-		Add(Service(serviceC, WithErrorFn(func() (any, error) {
+		})),
+		Service(serviceC, WithErrorFn(func() (any, error) {
 			instanceC.Name = "C"
 
 			return instanceC, nil
-		})))
+		})),
+	)
 
-	c := ctn.Get(serviceC).(*randomService)
+	container := builder.MustBuild(context.TODO())
+
+	c := container.MustGet(serviceC).(*randomService)
 	assert.NotNil(t, c)
 	assert.EqualValues(t, "C", c.Name)
 	assert.Same(t, instanceC, c)
 
-	b := ctn.Get(serviceB).(*randomService)
+	b := container.MustGet(serviceB).(*randomService)
 	assert.NotNil(t, b)
 	assert.EqualValues(t, "B", b.Name)
 	assert.Same(t, instanceB, b)
 
-	a := ctn.Get(serviceA).(*randomService)
+	a := container.MustGet(serviceA).(*randomService)
 	assert.NotNil(t, a)
 	assert.EqualValues(t, "A", a.Name)
 	assert.Same(t, instanceA, a)
@@ -100,28 +106,31 @@ func TestServiceWithContext(t *testing.T) {
 	instanceB := &randomService{}
 	instanceC := &randomService{}
 
-	ctn := New(context.TODO()).
-		Add(Service(serviceA, WithContextFn(func(ctx FactoryCtx) (any, error) {
+	builder := Builder(
+		Service(serviceA, WithContextFn(func(ctx FactoryCtx) (any, error) {
 			instanceA.Name = "A"
 
 			return instanceA, nil
-		}))).
-		Add(Service(serviceB, WithContextFn(func(ctx FactoryCtx) (any, error) {
-			a := ctx.Container().Get(serviceA).(*randomService) // depends on a
+		})),
+		Service(serviceB, WithContextFn(func(ctx FactoryCtx) (any, error) {
+			a := ctx.Container().MustGet(serviceA).(*randomService) // depends on a
 			instanceB.Name = fmt.Sprintf(`%s->%s`, a.Name, "B")
 			instanceB.A = a
 
 			return instanceB, nil
-		}))).
-		Add(Service(serviceC, WithContextFn(func(ctx FactoryCtx) (any, error) {
-			b := ctx.Container().Get(serviceB).(*randomService) // depends on b
+		})),
+		Service(serviceC, WithContextFn(func(ctx FactoryCtx) (any, error) {
+			b := ctx.Container().MustGet(serviceB).(*randomService) // depends on b
 			instanceC.Name = fmt.Sprintf(`%s->%s`, b.Name, "C")
 			instanceC.B = b
 
 			return instanceC, nil
-		})))
+		})),
+	)
 
-	c := ctn.Get(serviceC).(*randomService)
+	container := builder.MustBuild(context.TODO())
+
+	c := container.MustGet(serviceC).(*randomService)
 	assert.NotNil(t, c)
 	assert.EqualValues(t, "A->B->C", c.Name)
 	assert.Nil(t, c.A)
@@ -130,7 +139,7 @@ func TestServiceWithContext(t *testing.T) {
 	assert.NotNil(t, c.B.A)
 	assert.Same(t, instanceA, c.B.A)
 
-	b := ctn.Get(serviceB).(*randomService)
+	b := container.MustGet(serviceB).(*randomService)
 	assert.NotNil(t, b)
 	assert.EqualValues(t, "A->B", b.Name)
 	assert.Same(t, instanceB, b)
@@ -139,7 +148,7 @@ func TestServiceWithContext(t *testing.T) {
 	assert.Nil(t, b.B)
 	assert.Nil(t, b.C)
 
-	a := ctn.Get(serviceA).(*randomService)
+	a := container.MustGet(serviceA).(*randomService)
 	assert.NotNil(t, a)
 	assert.EqualValues(t, "A", a.Name)
 	assert.Same(t, instanceA, a)

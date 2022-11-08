@@ -9,12 +9,6 @@ import (
 	"github.com/phramz/dimple"
 )
 
-const (
-	ServiceLogger   = "logger"
-	ServiceTime     = "service.time"
-	ParamTimeFormat = "config.time_format"
-)
-
 type TaggedTimeService struct {
 	Logger *logrus.Logger `inject:"logger"`             // each tag point to the registered definition ID
 	Format string         `inject:"config.time_format"` // fields must be public for this to work!
@@ -25,13 +19,20 @@ func (t *TaggedTimeService) Now() {
 }
 
 func main() {
-	container := dimple.New(context.Background()).
-		Add(dimple.Param(ParamTimeFormat, time.Kitchen)).
-		Add(dimple.Service(ServiceLogger, dimple.WithInstance(logrus.New()))).
-		Add(dimple.Service(ServiceTime, dimple.WithInstance(&TaggedTimeService{})))
+	container := dimple.Builder(
+		dimple.Param("config.time_format", time.Kitchen),
+		dimple.Service("logger", dimple.WithFn(func() any {
+			l := logrus.New()
+			l.SetLevel(logrus.DebugLevel)
+			return l
+		})),
+		dimple.Service("service.time", dimple.WithInstance(&TaggedTimeService{})),
+	).
+		MustBuild(context.Background())
 
 	go func() {
-		timeService := container.Get(ServiceTime).(*TaggedTimeService)
+		timeService := dimple.MustGetT[*TaggedTimeService](container, "service.time")
+		logger := dimple.MustGetT[*logrus.Logger](container, "logger")
 
 		for {
 			select {
@@ -40,6 +41,7 @@ func main() {
 			default:
 				// we will output the time every second
 				time.Sleep(time.Second)
+				logger.Debug("timeService says ...")
 				timeService.Now()
 
 				// if you want to inject services into struct which is not itself registered
@@ -48,6 +50,7 @@ func main() {
 					panic(err)
 				}
 
+				logger.Debug("anotherInstance says ...")
 				anotherInstance.Now()
 			}
 		}

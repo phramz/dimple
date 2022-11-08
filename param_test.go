@@ -26,7 +26,7 @@ func TestParam(t *testing.T) {
 		}{foo: 1},
 		make(chan any),
 	} {
-		ctn := New(context.TODO()).Add(Param(id(tt), tt))
-		assert.EqualValues(t, tt, ctn.Get(id(tt)))
+		ctn := Builder(Param(id(tt), tt)).MustBuild(context.TODO())
+		assert.EqualValues(t, tt, ctn.MustGet(id(tt)))
 	}
 }
