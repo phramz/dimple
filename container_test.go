@@ -29,12 +29,6 @@ func (r *randomService) SayMyName() string {
 	return r.Name
 }
 
-func TestNew(t *testing.T) {
-	c := New(context.TODO())
-
-	assert.NotNil(t, c)
-}
-
 func TestContainer_Inject(t *testing.T) {
 	const serviceA = "service.a"
 	const serviceB = "service.b"
@@ -42,24 +36,26 @@ func TestContainer_Inject(t *testing.T) {
 	const serviceD = "service.d"
 
 	out := &injectableService{}
-	ctn := New(context.TODO()).
-		Add(Service(serviceA, WithContextFn(func(ctx FactoryCtx) (any, error) {
+	ctn := Builder(
+		Service(serviceA, WithContextFn(func(ctx FactoryCtx) (any, error) {
 			return &randomService{Name: "A"}, nil
-		}))).
-		Add(Service(serviceB, WithContextFn(func(ctx FactoryCtx) (any, error) {
+		})),
+		Service(serviceB, WithContextFn(func(ctx FactoryCtx) (any, error) {
 			return &randomService{Name: "B"}, nil
-		}))).
-		Add(Service(serviceC, WithContextFn(func(ctx FactoryCtx) (any, error) {
+		})),
+		Service(serviceC, WithContextFn(func(ctx FactoryCtx) (any, error) {
 			return &randomService{Name: "C"}, nil
-		}))).
-		Add(Service(serviceD, WithInstance(out)))
+		})),
+		Service(serviceD, WithInstance(out)),
+	).
+		MustBuild(context.TODO())
 
-	actual := ctn.Get(serviceD).(*injectableService)
+	actual := ctn.MustGet(serviceD).(*injectableService)
 	assert.Same(t, out, actual)
 
-	assert.Same(t, ctn.Get(serviceA), actual.InjectedA)
-	assert.Same(t, ctn.Get(serviceB), actual.InjectedB)
-	assert.Same(t, ctn.Get(serviceC), actual.InjectedC)
+	assert.Same(t, ctn.MustGet(serviceA), actual.InjectedA)
+	assert.Same(t, ctn.MustGet(serviceB), actual.InjectedB)
+	assert.Same(t, ctn.MustGet(serviceC), actual.InjectedC)
 
 	assert.Equal(t, "A", actual.InjectedA.SayMyName())
 	assert.Equal(t, "B", actual.InjectedB.SayMyName())
@@ -71,31 +67,32 @@ func TestCircularDependency(t *testing.T) {
 	const serviceB = "service.b"
 	const serviceC = "service.c"
 
-	ctn := New(context.TODO()).
-		Add(Service(serviceA, WithContextFn(func(ctx FactoryCtx) (any, error) {
+	ctn := Builder(
+		Service(serviceA, WithContextFn(func(ctx FactoryCtx) (any, error) {
 			instanceA := &randomService{
 				Name: "A",
-				B:    ctx.Container().Get(serviceB).(*randomService), // depends on b
+				B:    ctx.Container().MustGet(serviceB).(*randomService), // depends on b
 			}
 
 			return instanceA, nil
-		}))).
-		Add(Service(serviceB, WithContextFn(func(ctx FactoryCtx) (any, error) {
+		})),
+		Service(serviceB, WithContextFn(func(ctx FactoryCtx) (any, error) {
 			instanceB := &randomService{
 				Name: "B",
-				C:    ctx.Container().Get(serviceC).(*randomService), // depends on c
+				C:    ctx.Container().MustGet(serviceC).(*randomService), // depends on c
 			}
 
 			return instanceB, nil
-		}))).
-		Add(Service(serviceC, WithContextFn(func(ctx FactoryCtx) (any, error) {
+		})),
+		Service(serviceC, WithContextFn(func(ctx FactoryCtx) (any, error) {
 			instanceC := &randomService{
 				Name: "C",
-				A:    ctx.Container().Get(serviceA).(*randomService), // depends on A
+				A:    ctx.Container().MustGet(serviceA).(*randomService), // depends on A
 			}
 
 			return instanceC, nil
-		})))
+		})),
+	).MustBuild(context.TODO())
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -107,5 +104,5 @@ func TestCircularDependency(t *testing.T) {
 		t.Errorf("Expected a panic!")
 	}()
 
-	_ = ctn.Get(serviceA).(*randomService)
+	_ = ctn.MustGet(serviceA).(*randomService)
 }

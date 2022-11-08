@@ -2,7 +2,7 @@ package dimple
 
 var _ DecoratorDef = (*decoratorDef)(nil)
 
-// Decorator returns a newInstance regular service definition
+// Decorator returns a new instance of DecoratorDef
 func Decorator(id string, decorates string, factory Factory) DecoratorDef {
 	return &decoratorDef{
 		definition: definition{

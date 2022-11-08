@@ -13,40 +13,53 @@ go get github.com/phramz/dimple
 Here a very basic example how it works in general:
 ```go
 func main() {
-    const (
-        ServiceLogger      = "logger"
-        ServiceTimeService = "service.time"
-        ParamTimeFormat    = "config.time_format"
-    )
+	// Builder() returns an instance of ContainerBuilder to configure the container
+	builder := dimple.Builder(
+		// let's add our favorite time format as parameter to the container so other
+		// services can pick it up
+		dimple.Param("config.time_format", time.Kitchen),
 
-    container := dimple.New(context.Background()).
-        // let's add our favorite time format as parameter to the container so other
-		// services can pick it up.
-        Add(dimple.Param(ParamTimeFormat, time.Kitchen)).
+		// we can just add an anonymous function as factory for our "logger" service since it does not
+		// depend on other services
+		// and therefore does not need any context
+		dimple.Service("logger", dimple.WithFn(func() any {
+			logger := logrus.New()
+			logger.SetOutput(os.Stdout)
 
-        // we can just add an anonymous function as factory for our "logger" service
-		// since it does not depend on other services
-        // and therefore does not need any context
-        Add(dimple.Service(ServiceLogger, dimple.WithFn(func() any {
-            logger := logrus.New()
-            logger.SetOutput(os.Stdout)
+			return logger
+		})),
 
-            return logger
-        }))).
+		// this service depends on the "logger" to output the time and "config.time_format" for the
+		// desired format.
+		// that is why we need to use WithContextFn to get to the container and context
+		dimple.Service("service.time", dimple.WithContextFn(func(ctx dimple.FactoryCtx) (any, error) {
+			// you get can whatever dependency you need from the container as
+			// long as you do not create a circular dependency
+			logger := ctx.Container().MustGet("logger").(*logrus.Logger)
+			format := ctx.Container().MustGet("config.time_format").(string)
 
-        // this service depends on the "logger" to output the time and "config.time_format" for the desired format.
-        // that is why we need to use WithContextFn to get to the container and context
-        Add(dimple.Service(ServiceTimeService, dimple.WithContextFn(func(ctx dimple.FactoryCtx) (any, error) {
-            logger := ctx.Container().Get(ServiceLogger).(*logrus.Logger)
-            format := ctx.Container().Get(ParamTimeFormat).(string)
+			return &TimeService{
+				logger: logger.WithField("service", ctx.ServiceID()),
+				format: format,
+			}, nil
+		})),
+	)
 
-            return &TimeService{
-                logger: logger.WithField("service", ctx.ServiceID()),
-                format: format,
-            }, nil
-        })))
+	// once we're done building we can retrieve a new instance of Container
+	container, err := builder.Build(context.Background())
+	if err != nil {
+		panic(err)
+	}
 
-    timeService := container.Get(ServiceTimeService).(*TimeService)
+	// this is optional, but recommend since it will instantiate all service eager and
+	// would return an error if there are issues. We don't want it to panic during runtime but
+	// rather error on startup
+	if err = container.Boot(); err != nil {
+		panic(err)
+	}
+
+    // retrieve the *TimeService instance via generic function. Beware that illegal type assertions will panic
+    timeService := dimple.MustGetT[*TimeService](container, "service.time")
     timeService.Now()
 }
 ```
@@ -59,6 +72,7 @@ It is possible to annotate public struct members using the `inject` tag to get a
 without explicitly registering a struct as service and the need of a factory function.
 
 ```go
+
 type TaggedTimeService struct {
 	Logger *logrus.Logger `inject:"logger"`             // each tag point to the registered definition ID
 	Format string         `inject:"config.time_format"` // fields must be public for this to work!
@@ -69,38 +83,33 @@ func (t *TaggedTimeService) Now() {
 }
 
 func main() {
-	container := dimple.New(context.Background()).
-		Add(dimple.Param(ParamTimeFormat, time.Kitchen)).
-		Add(dimple.Service(ServiceLogger, dimple.WithInstance(logrus.New()))).
-		Add(dimple.Service(ServiceTimeService, dimple.WithInstance(&TaggedTimeService{})))
+	container := dimple.Builder(
+		dimple.Param("config.time_format", time.Kitchen),
+		dimple.Service("logger", dimple.WithFn(func() any {
+			l := logrus.New()
+			l.SetLevel(logrus.DebugLevel)
+			return l
+		})),
+		dimple.Service("service.time", dimple.WithInstance(&TaggedTimeService{})),
+	).
+		MustBuild(context.Background())
 
-	go func() {
-		timeService := container.Get(ServiceTimeService).(*TaggedTimeService)
+    timeService := dimple.MustGetT[*TaggedTimeService](container, "service.time")
+    logger := dimple.MustGetT[*logrus.Logger](container, "logger")
 
-		for {
-			select {
-			case <-container.Ctx().Done():
-				return
-			default:
-				// we will output the time every second
-				time.Sleep(time.Second)
-				timeService.Now()
+    logger.Debug("timeService says ...")
+    timeService.Now()
 
-				// if you want to inject services into struct
-				// which is not itself registered use Inject()
-				anotherInstance := &TaggedTimeService{}
-				if err := container.Inject(anotherInstance); err != nil {
-					panic(err)
-				}
+    // if you want to inject services into struct which is not itself registered as a service
+    // you might do it using Inject()
+    anotherInstance := &TaggedTimeService{}
+    if err := container.Inject(anotherInstance); err != nil {
+        panic(err)
+    }
 
-				anotherInstance.Now()
-			}
-		}
-	}()
-
-	<-container.Ctx().Done()
+    logger.Debug("anotherInstance says ...")
+    anotherInstance.Now()
 }
-
 ```
 Full example see [examples/basic/main.go](./examples/basic/main.go)
 
@@ -110,39 +119,76 @@ Decorator can be used to wrap a service with another.
 
 ```go
 
+// TimeServiceInterface it might be beneficial to have an interface for abstraction when it comes to service decoration
+type TimeServiceInterface interface {
+	Now()
+}
+
+// OriginTimeService is the service we want to decorate
+type OriginTimeService struct {
+	Logger *logrus.Logger `inject:"logger"`
+	Format string         `inject:"config.time_format"`
+}
+
+func (t *OriginTimeService) Now() {
+	t.Logger.Infof("It is %s", time.Now().Format(t.Format))
+}
+
+// TimeServiceDecorator will decorate OriginTimeService
+type TimeServiceDecorator struct {
+	Logger    *logrus.Logger `inject:"logger"`
+	Decorated TimeServiceInterface
+}
+
+func (t *TimeServiceDecorator) Now() {
+	t.Logger.Infof("%d seconds elapsed since January 1, 1970 UTC", time.Now().Unix())
+	t.Decorated.Now() // let's call the origin TaggedService as well
+}
+
 func main() {
-	container := dimple.New(context.Background()).
-		Add(dimple.Param(ParamTimeFormat, time.Kitchen)).
-		Add(dimple.Service(ServiceLogger, dimple.WithInstance(logrus.New()))).
-		Add(dimple.Service(ServiceTime, dimple.WithInstance(&OriginTimeService{}))).
-		Add(dimple.Decorator(ServiceTimeDecorator, ServiceTime, dimple.WithContextFn(func(ctx dimple.FactoryCtx) (any, error) {
+	container := dimple.Builder(
+		dimple.Param("config.time_format", time.Kitchen),
+		dimple.Service("logger", dimple.WithInstance(logrus.New())),
+		dimple.Service("service.time", dimple.WithInstance(&OriginTimeService{})),
+		dimple.Decorator("service.time.decorator", "service.time", dimple.WithContextFn(func(ctx dimple.FactoryCtx) (any, error) {
 			return &TimeServiceDecorator{
 				// we can get the inner (origin) instance if we need to
 				Decorated: ctx.Decorated().(TimeServiceInterface),
 			}, nil
-		})))
+		})),
+	).
+		MustBuild(context.Background())
 
-	go func() {
-		// now when we Get() the ServiceTime, we will actually receive the TimeServiceDecorator
-		timeService := container.Get(ServiceTime).(TimeServiceInterface)
-
-		for {
-			select {
-			case <-container.Ctx().Done():
-				return
-			default:
-				// we will output the time every second
-				time.Sleep(time.Second)
-				timeService.Now()
-			}
-		}
-	}()
-
-	<-container.Ctx().Done()
+    // now when we call MustGet() we will actually receive the TimeServiceDecorator
+	// instead of OriginTimeService
+    timeService := dimple.MustGetT[TimeServiceInterface](container, "service.time")
+    timeService.Now()
 }
 ```
 
 Full example see [examples/decorator/main.go](./examples/decorator/main.go)
+
+## Build-in services
+
+### Container
+You can always get or inject the service container instance by addressing
+the service-id `container` e.g.:
+
+```go
+type ContainerAwareService struct {
+	container Container `inject:"container"`
+}
+```
+
+### Context
+You can always get or inject the context given at Build() by addressing
+the service-id `context` e.g.:
+
+```go
+type ContextAwareService struct {
+	ctx context.Context `inject:"context"`
+}
+```
 
 ## Credits
 
@@ -153,26 +199,4 @@ This library is based on various awesome open source libraries kudos going to:
 
 ## License
 
-```
-MIT License
-
-Copyright (c) 2022 Maximilian Reichel
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
+This project is licensed under MIT License. See [LICENSE](./LICENSE) file.

@@ -7,7 +7,7 @@ import (
 
 var _ FactoryCtx = (*factoryContext)(nil)
 
-func newFactoryCtx(ctx context.Context, c *container, d any) FactoryCtx {
+func newFactoryCtx(ctx context.Context, c *DefaultContainer, d any) FactoryCtx {
 	return &factoryContext{
 		ctx:       ctx,
 		container: c,

@@ -10,28 +10,30 @@ import (
 	"github.com/thoas/go-funk"
 )
 
-var _ Container = (*container)(nil)
+var _ Container = (*DefaultContainer)(nil)
 
-// New returns a newInstance container instance
-func New(ctx context.Context) Container {
-	return &container{
-		ctx:         ctx,
-		order:       make([]string, 0),
-		definitions: make(map[string]Definition),
-	}
-}
-
-type container struct {
+type DefaultContainer struct {
 	sync.Mutex
 	booted      bool
 	order       []string
 	ref         *string
-	parent      *container
+	parent      *DefaultContainer
 	ctx         context.Context
 	definitions map[string]Definition
 }
 
-func (c *container) Inject(target any) error {
+// MustGetT generic wrapper for Container.MustGet
+func MustGetT[T any](c Container, id string) T {
+	val := c.MustGet(id)
+	valT, ok := val.(T)
+	if !ok {
+		panic(fmt.Sprintf(`illegal type assertion for service "%s" of type "%T"`, id, val))
+	}
+
+	return valT
+}
+
+func (c *DefaultContainer) Inject(target any) error {
 	if !c.isInjectable(target) {
 		return fmt.Errorf(`unable to inject to target. it has to been a pointer to a struct an addressable, got "%T"`, target)
 	}
@@ -40,7 +42,11 @@ func (c *container) Inject(target any) error {
 	for i := 0; i < v.NumField(); i++ {
 		typeField := v.Type().Field(i)
 		if id, ok := typeField.Tag.Lookup("inject"); ok {
-			instance := c.Get(id)
+			instance, err := c.Get(id)
+			if err != nil {
+				return err
+			}
+
 			fieldVal := v.Field(i)
 			if !fieldVal.CanSet() {
 				return fmt.Errorf(`unable to inject value to field "%s" since it is not writable`, typeField.Name)
@@ -52,51 +58,22 @@ func (c *container) Inject(target any) error {
 
 	return nil
 }
-func (c *container) Add(def Definition) Container {
-	if c.booted {
-		panic(ErrContainerAlreadyBooted)
-	}
 
-	return c.add(def.Id(), def)
-}
-
-func (c *container) Ctx() context.Context {
-	return c.ctx
-}
-
-func (c *container) Boot() error {
-	if err := c.boot(c.allDecoratorIDs()...); err != nil {
+func (c *DefaultContainer) Boot() error {
+	// decorated services must be instantiated first
+	if err := c.boot(c.getAllDecoratorIDs()...); err != nil {
 		return err
 	}
 
-	return c.boot(c.allServiceIDs()...)
+	return c.boot(c.getAllServiceIDs()...)
 }
 
-func (c *container) GetDefinition(id string) Definition {
-
-	if c.parent != nil {
-		return c.parent.GetDefinition(id)
-	}
-
-	if def, ok := c.definitions[id]; ok {
-		return def
-	}
-
-	return nil
+func (c *DefaultContainer) Has(id string) bool {
+	return c.getDefinition(id) != nil
 }
 
-func (c *container) Has(id string) bool {
-	return c.GetDefinition(id) != nil
-}
-
-func (c *container) Get(id string) any {
-	if !c.booted {
-		if err := c.boot(c.allDecoratorIDs()...); err != nil {
-			panic(err)
-		}
-	}
-
-	instance, err := c.get(id)
+func (c *DefaultContainer) MustGet(id string) any {
+	instance, err := c.Get(id)
 	if err != nil {
 		panic(err)
 	}
@@ -104,7 +81,48 @@ func (c *container) Get(id string) any {
 	return instance
 }
 
-func (c *container) add(id string, val any) Container {
+func (c *DefaultContainer) Get(id string) (any, error) {
+	if !c.booted {
+		if err := c.boot(c.getAllDecoratorIDs()...); err != nil {
+			panic(err)
+		}
+	}
+
+	instance, err := c.getValue(id)
+	if err != nil {
+		return nil, err
+	}
+
+	return instance, nil
+}
+
+func (c *DefaultContainer) Ctx() context.Context {
+	return c.ctx
+}
+
+func (c *DefaultContainer) boot(ids ...string) error {
+	if c.parent != nil {
+		return nil
+	}
+
+	defer func() {
+		c.booted = true
+	}()
+
+	for _, id := range c.order {
+		if !funk.ContainsString(ids, id) {
+			continue
+		}
+
+		if _, err := c.getValue(id); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (c *DefaultContainer) add(id string, val any) *DefaultContainer {
 	c.Lock()
 	defer c.Unlock()
 
@@ -119,7 +137,7 @@ func (c *container) add(id string, val any) Container {
 	case Definition:
 		panic(fmt.Sprintf(`unsupported type of definiton "%T" for service "%s"`, val, id))
 	default:
-		panic(fmt.Sprintf(`unsupported type definition %T`, val))
+		panic(fmt.Sprintf(`unsupported type getDefinition %T`, val))
 	}
 
 	if c.parent == nil {
@@ -133,7 +151,7 @@ func (c *container) add(id string, val any) Container {
 	return c
 }
 
-func (c *container) newInstance(def Definition) (any, error) {
+func (c *DefaultContainer) getInstance(def Definition) (any, error) {
 	var err error
 	var target, instance any
 	var f Factory
@@ -151,7 +169,7 @@ func (c *container) newInstance(def Definition) (any, error) {
 	}
 
 	if svc, ok := def.(DecoratorDef); ok {
-		target, err = c.get(svc.Decorates())
+		target, err = c.getValue(svc.Decorates())
 		if err != nil {
 			return nil, err
 		}
@@ -191,11 +209,12 @@ func (c *container) newInstance(def Definition) (any, error) {
 	return nil, fmt.Errorf(`%w: cannot instantiate service "%s: no factory function provided"`, ErrServiceFactoryFailed, def.Id())
 }
 
-func (c *container) get(id string) (any, error) {
-	def := c.GetDefinition(id)
-	if def == nil {
+func (c *DefaultContainer) getValue(id string) (any, error) {
+	if !c.Has(id) {
 		return nil, fmt.Errorf(`%w: cannot find definiton for service "%s"`, ErrUnknownService, id)
 	}
+
+	def := c.getDefinition(id)
 
 	// if it's a ParamDef just return the value
 	if svc, ok := def.(ParamDef); ok {
@@ -203,10 +222,10 @@ func (c *container) get(id string) (any, error) {
 	}
 
 	if c.isCircularDependency(id) {
-		return nil, fmt.Errorf(`%w: %s`, ErrCircularDependency, c.debugPathInfo(c.path(id)))
+		return nil, fmt.Errorf(`%w: %s`, ErrCircularDependency, c.getDebugPathInfo(c.getPath(id)))
 	}
 
-	indirection := c.indirect(id)
+	indirection := c.getIndirect(id)
 	if svc, ok := def.(ServiceDef); ok {
 		return indirection.getService(svc)
 	}
@@ -218,18 +237,31 @@ func (c *container) get(id string) (any, error) {
 	panic(fmt.Sprintf(`unsupported type of definiton "%T" for service "%s"`, def, id))
 }
 
-func (c *container) getDecoration(svc DecoratorDef) (any, error) {
+func (c *DefaultContainer) getDefinition(id string) Definition {
+
+	if c.parent != nil {
+		return c.parent.getDefinition(id)
+	}
+
+	if def, ok := c.definitions[id]; ok {
+		return def
+	}
+
+	return nil
+}
+
+func (c *DefaultContainer) getDecoration(svc DecoratorDef) (any, error) {
 	if svc.Instance() != nil {
 		// already instantiated?
 		return svc.Instance(), nil
 	}
 
-	// we need to instantiate a newInstance service
+	// we need to instantiate a getInstance service
 	if c.isCircularDependency(svc.Decorates()) {
-		return nil, fmt.Errorf(`%w: %s`, ErrCircularDependency, c.debugPathInfo(c.path(svc.Decorates())))
+		return nil, fmt.Errorf(`%w: %s`, ErrCircularDependency, c.getDebugPathInfo(c.getPath(svc.Decorates())))
 	}
 
-	instance, err := c.newInstance(svc)
+	instance, err := c.getInstance(svc)
 	if err != nil {
 		return nil, err
 	}
@@ -240,7 +272,11 @@ func (c *container) getDecoration(svc DecoratorDef) (any, error) {
 		}
 	}
 
-	targetDef := c.GetDefinition(svc.Decorates())
+	if !c.Has(svc.Decorates()) {
+		return nil, fmt.Errorf(`%w: cannot decorate non existinmg service "%s"`, ErrUnknownService, svc.Decorates())
+	}
+
+	targetDef := c.getDefinition(svc.Decorates())
 	if err != nil {
 		return nil, err
 	}
@@ -252,14 +288,14 @@ func (c *container) getDecoration(svc DecoratorDef) (any, error) {
 	return instance, nil
 }
 
-func (c *container) getService(def ServiceDef) (any, error) {
+func (c *DefaultContainer) getService(def ServiceDef) (any, error) {
 	if def.Instance() != nil {
 		// already instantiated?
 		return def.Instance(), nil
 	}
 
-	// we need to instantiate a newInstance service
-	instance, err := c.newInstance(def)
+	// we need to instantiate a getInstance service
+	instance, err := c.getInstance(def)
 	if err != nil {
 		return nil, err
 	}
@@ -275,14 +311,14 @@ func (c *container) getService(def ServiceDef) (any, error) {
 	return instance, nil
 }
 
-func (c *container) indirect(id string) *container {
+func (c *DefaultContainer) getIndirect(id string) *DefaultContainer {
 	indirection := c.clone()
 	indirection.ref = &id
 
 	return indirection
 }
 
-func (c *container) isCircularDependency(id string) bool {
+func (c *DefaultContainer) isCircularDependency(id string) bool {
 	if c.ref != nil && *c.ref == id {
 		return true
 	}
@@ -294,7 +330,7 @@ func (c *container) isCircularDependency(id string) bool {
 	return c.parent.isCircularDependency(id)
 }
 
-func (c *container) path(id string) []string {
+func (c *DefaultContainer) getPath(id string) []string {
 	path := make([]string, 0)
 	if c.ref != nil {
 		path = append(path, *c.ref)
@@ -312,29 +348,7 @@ func (c *container) path(id string) []string {
 	return path
 }
 
-func (c *container) boot(ids ...string) error {
-	if c.parent != nil {
-		return nil
-	}
-
-	defer func() {
-		c.booted = true
-	}()
-
-	for _, id := range c.order {
-		if !funk.ContainsString(ids, id) {
-			continue
-		}
-
-		if _, err := c.get(id); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func (c *container) allDecoratorIDs() []string {
+func (c *DefaultContainer) getAllDecoratorIDs() []string {
 	return funk.FilterString(funk.Keys(c.definitions).([]string), func(s string) bool {
 		def := c.definitions[s]
 		_, ok := def.(DecoratorDef)
@@ -343,7 +357,7 @@ func (c *container) allDecoratorIDs() []string {
 	})
 }
 
-func (c *container) allServiceIDs() []string {
+func (c *DefaultContainer) getAllServiceIDs() []string {
 	return funk.FilterString(funk.Keys(c.definitions).([]string), func(s string) bool {
 		def := c.definitions[s]
 		_, ok := def.(ServiceDef)
@@ -352,7 +366,7 @@ func (c *container) allServiceIDs() []string {
 	})
 }
 
-func (c *container) isInjectable(target any) bool {
+func (c *DefaultContainer) isInjectable(target any) bool {
 	if reflect.ValueOf(target).Kind() != reflect.Pointer {
 		return false
 	}
@@ -368,18 +382,10 @@ func (c *container) isInjectable(target any) bool {
 	return true
 }
 
-func (c *container) clone() *container {
-	return &container{
-		ctx:         c.ctx,
-		definitions: c.definitions,
-		parent:      c,
-	}
-}
-
-func (c *container) debugPathInfo(defIDs []string) string {
+func (c *DefaultContainer) getDebugPathInfo(defIDs []string) string {
 	pathInfo := make([]string, 0)
 	for _, defID := range defIDs {
-		subPath := c.debugDecoratorPath(c.GetDefinition(defID))
+		subPath := c.getDebugDecoratorPath(c.getDefinition(defID))
 		subPathInfo := ""
 
 		if len(subPath) > 0 {
@@ -392,7 +398,7 @@ func (c *container) debugPathInfo(defIDs []string) string {
 	return strings.Join(pathInfo, ` -> `)
 }
 
-func (c *container) debugDecoratorPath(def Definition) []string {
+func (c *DefaultContainer) getDebugDecoratorPath(def Definition) []string {
 	path := make([]string, 0)
 	if def == nil {
 		return path
@@ -406,8 +412,16 @@ func (c *container) debugDecoratorPath(def Definition) []string {
 	path = append(path, fmt.Sprintf(`"%s"`, dec.Decorates()))
 
 	if dec.Decorated() != nil {
-		path = append(path, c.debugDecoratorPath(dec.Decorated())...)
+		path = append(path, c.getDebugDecoratorPath(dec.Decorated())...)
 	}
 
 	return path
+}
+
+func (c *DefaultContainer) clone() *DefaultContainer {
+	return &DefaultContainer{
+		ctx:         c.ctx,
+		definitions: c.definitions,
+		parent:      c,
+	}
 }

@@ -2,7 +2,7 @@ package dimple
 
 var _ ServiceDef = (*serviceDef)(nil)
 
-// Service returns a newInstance regular service definition
+// Service returns a new instance of  ServiceDef
 func Service(id string, factory Factory) ServiceDef {
 	return &serviceDef{
 		definition: definition{
