@@ -3,7 +3,7 @@ module github.com/phramz/dimple
 go 1.19
 
 require (
-	github.com/stretchr/testify v1.8.2
+	github.com/stretchr/testify v1.8.3
 	github.com/thoas/go-funk v0.9.3
 )
 
